@@ -112,7 +112,69 @@ async function generateServicePDF() {
 
     return baseY - rowHeight
   }
+  // ── Add these two helpers near your other helpers (text, box, row) ──
 
+  function wrapText(t: string, maxWidth: number, size: number): string[] {
+    // First, split on any newline variants (\r\n, \r, \n)
+    const paragraphs = (t ?? '-').split(/\r?\n|\r/)
+    const lines: string[] = []
+
+    for (const paragraph of paragraphs) {
+      // Handle empty lines (preserve blank line spacing)
+      if (paragraph.trim() === '') {
+        lines.push('')
+        continue
+      }
+
+      // Then word-wrap each paragraph to fit within maxWidth
+      const words = paragraph.split(' ')
+      let current = ''
+
+      for (const word of words) {
+        const test = current ? `${current} ${word}` : word
+        const testWidth = font.widthOfTextAtSize(test, size)
+        if (testWidth > maxWidth && current) {
+          lines.push(current)
+          current = word
+        } else {
+          current = test
+        }
+      }
+      if (current) lines.push(current)
+    }
+
+    return lines
+  }
+
+  function textBox(
+    label: string,
+    content: string,
+    xStart: number,
+    yTop: number,
+    boxWidth: number,
+    fontSize = 9,
+    lineHeight = 13,
+    paddingTop = 28,
+    paddingH = 10,
+  ): number {
+    const maxTextWidth = boxWidth - paddingH * 2
+    const lines = wrapText(content, maxTextWidth, fontSize)
+
+    // Minimum height: label row + at least 1 content line + bottom padding
+    const contentHeight = lines.length * lineHeight
+    const totalHeight = paddingTop + contentHeight + 10 // 10 = bottom padding
+
+    const boxY = yTop - totalHeight
+
+    box(xStart, boxY, boxWidth, totalHeight)
+    text(label, xStart + paddingH, yTop - 12, 10, true)
+
+    lines.forEach((line, i) => {
+      text(line, xStart + paddingH, yTop - paddingTop - i * lineHeight, fontSize)
+    })
+
+    return boxY - 10 // return next y position
+  }
   // ================= HEADER =================
   try {
     const logoBytes = await fetch(logoUrl).then((r) => r.arrayBuffer())
@@ -205,16 +267,10 @@ async function generateServicePDF() {
   y -= 100
 
   // ================= PROBLEM =================
-  box(40, y - 80, width - 80, 80)
-  text('Problem Found / Comments', 50, y - 15, 10, true)
-  text(sheet.problemFound || '-', 50, y - 35)
-  y -= 90
+  y = textBox('Problem Found / Comments', sheet.problemFound || '-', 40, y, width - 80)
 
   // ================= WORK =================
-  box(40, y - 80, width - 80, 80)
-  text('Work Report', 50, y - 15, 10, true)
-  text(sheet.workReport || '-', 50, y - 35)
-  y -= 100
+  y = textBox('Work Report', sheet.workReport || '-', 40, y, width - 80)
 
   // ================= SPARE TABLE =================
   text('Parts', 40, y, 10, true)
@@ -327,7 +383,7 @@ async function shareJobSheet() {
   // Check if sharing supports files
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     await navigator.share({
-      title: `Service Report ${sheet.id}`,
+      title: `Service Report ${sheet.id} ${sheet.customer.name}`,
       text: 'Service report attached',
       files: [file],
     })
@@ -337,7 +393,7 @@ async function shareJobSheet() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ServiceReport-${sheet.id}.pdf`
+    a.download = `ServiceReport-${sheet.id}-${sheet.customer.name}.pdf`
     a.click()
     URL.revokeObjectURL(url)
     alert('Native share not supported. PDF downloaded instead.')
